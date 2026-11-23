@@ -54,11 +54,9 @@ public sealed class CardDeckSpawner : MonoBehaviour
     private Transform deckVisual;
     private GameObject pulledCard;
     private GameObject shownCard;
-    private Pose deckGrip;
     private Pose cardGrip;
     private Vector3 pullStart;
     private Vector3 cardSize;
-    private int deckHand = -1;
     private int pullHand = -1;
     private bool revealed;
 
@@ -105,18 +103,6 @@ public sealed class CardDeckSpawner : MonoBehaviour
         ReadGrip(0, OVRInput.Controller.LTouch);
         ReadGrip(1, OVRInput.Controller.RTouch);
 
-        if (deckHand >= 0 && !gripping[deckHand])
-        {
-            if (pullHand >= 0 && !revealed)
-                ReleaseCard();
-
-            deckVisual.SetLocalPositionAndRotation(Vector3.zero, Quaternion.identity);
-            deckHand = -1;
-        }
-
-        if (deckHand >= 0)
-            Follow(deckVisual, controllers[deckHand], deckGrip);
-
         if (pullHand >= 0)
         {
             if (gripping[pullHand])
@@ -128,21 +114,20 @@ public sealed class CardDeckSpawner : MonoBehaviour
             }
             else
                 ReleaseCard();
+
+            return;
         }
+
+        if (deck.Count == 0)
+            return;
 
         for (int hand = 0; hand < controllers.Length; hand++)
         {
-            if (!pressed[hand] || hand == deckHand || hand == pullHand || deck.Count == 0 ||
-                Vector3.Distance(controllers[hand].position, TopOfDeck()) > gripReach)
+            if (!pressed[hand] || Vector3.Distance(controllers[hand].position, TopOfDeck().position) > gripReach)
                 continue;
 
-            if (deckHand < 0)
-            {
-                deckHand = hand;
-                deckGrip = RelativePose(controllers[hand], deckVisual);
-            }
-            else if (pullHand < 0)
-                BeginPull(hand);
+            BeginPull(hand);
+            break;
         }
     }
 
@@ -198,18 +183,15 @@ public sealed class CardDeckSpawner : MonoBehaviour
         }
     }
 
-    private Vector3 TopOfDeck()
-    {
-        int top = Mathf.Clamp(deck.Count, 1, layers.Length) - 1;
-        return layers[top].position;
-    }
+    private Transform TopOfDeck() => layers[Mathf.Min(deck.Count, layers.Length) - 1];
 
     private void BeginPull(int hand)
     {
-        pulledCard = Instantiate(singleCards[0], TopOfDeck() + deckVisual.up * cardSize.y,
-            deckVisual.rotation, transform);
+        Transform top = TopOfDeck();
+        pulledCard = Instantiate(singleCards[0], top.position, top.rotation, transform);
         pulledCard.GetComponent<BoxCollider>().enabled = false;
         pulledCard.transform.Find("Face").gameObject.SetActive(false);
+        top.gameObject.SetActive(false);
         pullHand = hand;
         pullStart = deckVisual.InverseTransformPoint(pulledCard.transform.position);
         cardGrip = RelativePose(controllers[hand], pulledCard.transform);
@@ -271,7 +253,10 @@ public sealed class CardDeckSpawner : MonoBehaviour
                 RefillDeck();
         }
         else
+        {
             Destroy(pulledCard);
+            UpdateStack();
+        }
 
         pulledCard = null;
         pullHand = -1;
