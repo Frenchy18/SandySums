@@ -41,6 +41,11 @@ public sealed class CardDeckSpawner : MonoBehaviour
 
     public event Action<Card> CardDrawn;
     public int RemainingCards => deck.Count;
+    public bool IsHoldingCard => pullHand >= 0;
+    public bool DrawingAllowed { get; set; } = true;
+    public bool IsComputerTurn { get; set; }
+
+    private bool CanPullCard => DrawingAllowed && !IsComputerTurn;
 
     private static readonly string[] Colors = { "Blue", "Cyan", "Red", "Tan" };
     private const int MaxVisibleCards = 12;
@@ -105,6 +110,12 @@ public sealed class CardDeckSpawner : MonoBehaviour
 
         if (pullHand >= 0)
         {
+            if (!CanPullCard && !revealed)
+            {
+                ReleaseCard();
+                return;
+            }
+
             if (gripping[pullHand])
             {
                 Follow(pulledCard.transform, controllers[pullHand], cardGrip);
@@ -118,7 +129,7 @@ public sealed class CardDeckSpawner : MonoBehaviour
             return;
         }
 
-        if (deck.Count == 0)
+        if (!CanPullCard || deck.Count == 0)
             return;
 
         for (int hand = 0; hand < controllers.Length; hand++)
@@ -215,43 +226,64 @@ public sealed class CardDeckSpawner : MonoBehaviour
         text.color = new Color(0.05f, 0.22f, 0.28f);
     }
 
+    public bool TryDrawAutomatically()
+    {
+        if (!isActiveAndEnabled || !DrawingAllowed || !IsComputerTurn || IsHoldingCard || deck.Count == 0)
+            return false;
+
+        Transform top = TopOfDeck();
+        GameObject drawnCard = DrawCard(top.position, top.rotation, out Card card);
+        ShowCard(drawnCard);
+        CardDrawn?.Invoke(card);
+        return true;
+    }
+
+    private GameObject DrawCard(Vector3 position, Quaternion rotation, out Card card)
+    {
+        card = deck[^1];
+        deck.RemoveAt(deck.Count - 1);
+
+        GameObject drawnCard = Instantiate(card.Prefab != null ? card.Prefab : singleCards[0],
+            position, rotation, transform);
+        foreach (Collider collider in drawnCard.GetComponentsInChildren<Collider>())
+            collider.enabled = false;
+
+        if (card.Prefab == null)
+        {
+            drawnCard.transform.Find("Face").gameObject.SetActive(false);
+            CreateSpecialLabel(drawnCard.transform, card.Destination.name);
+        }
+
+        drawnCard.name = card.Destination != null ? card.Destination.name : card.Prefab.name;
+        UpdateStack();
+        return drawnCard;
+    }
+
     private void RevealCard()
     {
-        Card card = deck[^1];
-        deck.RemoveAt(deck.Count - 1);
+        GameObject faceDownCard = pulledCard;
+        pulledCard = DrawCard(faceDownCard.transform.position, faceDownCard.transform.rotation, out Card card);
+        faceDownCard.SetActive(false);
+        Destroy(faceDownCard);
         revealed = true;
-        if (card.Prefab != null)
-        {
-            GameObject finishedCard = Instantiate(card.Prefab, pulledCard.transform.position,
-                pulledCard.transform.rotation, transform);
-            foreach (Collider collider in finishedCard.GetComponentsInChildren<Collider>())
-                collider.enabled = false;
-
-            pulledCard.SetActive(false);
-            Destroy(pulledCard);
-            pulledCard = finishedCard;
-        }
-        else
-            CreateSpecialLabel(pulledCard.transform, card.Destination.name);
-
-        pulledCard.name = card.Destination != null ? card.Destination.name : card.Prefab.name;
-
-        UpdateStack();
         CardDrawn?.Invoke(card);
+    }
+
+    private void ShowCard(GameObject card)
+    {
+        if (shownCard != null)
+            Destroy(shownCard);
+
+        shownCard = card;
+        shownCard.transform.SetLocalPositionAndRotation(Vector3.right * (cardSize.x + 0.015f), Quaternion.identity);
+        if (deck.Count == 0)
+            RefillDeck();
     }
 
     private void ReleaseCard()
     {
         if (revealed)
-        {
-            if (shownCard != null)
-                Destroy(shownCard);
-
-            shownCard = pulledCard;
-            shownCard.transform.SetLocalPositionAndRotation(Vector3.right * (cardSize.x + 0.015f), Quaternion.identity);
-            if (deck.Count == 0)
-                RefillDeck();
-        }
+            ShowCard(pulledCard);
         else
         {
             Destroy(pulledCard);
