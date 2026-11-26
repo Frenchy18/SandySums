@@ -9,7 +9,7 @@ using UnityEngine.UI;
 public sealed class BoardMatch : MonoBehaviour
 {
     private enum SpaceColor { None, Blue, Cyan, Red, Tan }
-    private enum MatchPhase { PlayerCount, PlayerColor, Playing, Moving, Finished, Leaving }
+    private enum MatchPhase { PlayerCount, PlayerColor, Playing, Answering, Moving, Finished, Leaving }
 
     [Serializable]
     private struct BoardSpace
@@ -48,6 +48,7 @@ public sealed class BoardMatch : MonoBehaviour
     [SerializeField] private Text winnerLabel;
     [SerializeField] private GameObject matchDisplay;
     [SerializeField] private Text status;
+    [SerializeField] private MathAnswerPanel mathPanel;
 
     private static readonly int BaseColor = Shader.PropertyToID("_BaseColor");
     private const float SharedSpaceOffset = 0.0075f;
@@ -77,7 +78,7 @@ public sealed class BoardMatch : MonoBehaviour
         if (deck != null)
             deck.DrawingAllowed = false;
 
-        if (deck == null || status == null || matchDisplay == null || setupPanel == null ||
+        if (deck == null || status == null || matchDisplay == null || setupPanel == null || mathPanel == null ||
             setupOptions == null || endOptions == null || winnerLabel == null ||
             setupTitle == null || setupValue == null || setupConfirm == null || highlightMaterial == null ||
             pieces == null || pieces.Length == 0 ||
@@ -124,6 +125,8 @@ public sealed class BoardMatch : MonoBehaviour
 
         deck.CardDrawn += MoveCurrentPiece;
         deck.DrawingAllowed = phase == MatchPhase.Playing;
+        if (phase == MatchPhase.Answering)
+            mathPanel.gameObject.SetActive(true);
     }
 
     private void OnDisable()
@@ -133,6 +136,8 @@ public sealed class BoardMatch : MonoBehaviour
 
         deck.CardDrawn -= MoveCurrentPiece;
         deck.DrawingAllowed = false;
+        if (phase == MatchPhase.Answering && mathPanel != null)
+            mathPanel.gameObject.SetActive(false);
     }
 
     private void Update()
@@ -278,8 +283,33 @@ public sealed class BoardMatch : MonoBehaviour
                 return;
 
             destination = FindColorDestination(positions[currentPlayer], color, card.Matches);
+            if (currentPlayer == 0)
+            {
+                phase = MatchPhase.Answering;
+                deck.DrawingAllowed = false;
+                moveDestination = destination;
+                ShowStatus(TurnLabel(), "Answer the question to move");
+                mathPanel.Ask(ResolveAnswer);
+                return;
+            }
         }
 
+        BeginMove(destination);
+    }
+
+    private void ResolveAnswer(bool correct)
+    {
+        if (phase != MatchPhase.Answering)
+            return;
+
+        if (correct)
+            BeginMove(moveDestination);
+        else
+            AdvanceTurn();
+    }
+
+    private void BeginMove(int destination)
+    {
         phase = MatchPhase.Moving;
         deck.DrawingAllowed = false;
         moveDestination = destination;
@@ -336,6 +366,11 @@ public sealed class BoardMatch : MonoBehaviour
             return;
         }
 
+        AdvanceTurn();
+    }
+
+    private void AdvanceTurn()
+    {
         currentPlayer = (currentPlayer + 1) % playerCount;
         phase = MatchPhase.Playing;
         ShowTurn();
